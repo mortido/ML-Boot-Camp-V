@@ -130,7 +130,7 @@ def fit_predict_model(create_callback, X_train, y_train, X_test, alpha, mean_col
     return result[:, 1] if result.shape[1] > 1 else result[:, 0]
 
 
-def execute_model(estimator, X_train, y_train, X_test=None, mean_columns=[], drop_columns=[], model_name="",
+def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, mean_columns=[], model_name="",
                   n_folds=5, n_splits=0,
                   create_callback=None, verbose=1, seed=1205, stratification_groups=None, alpha=10):
     np.random.seed(seed)
@@ -144,6 +144,11 @@ def execute_model(estimator, X_train, y_train, X_test=None, mean_columns=[], dro
             return clone(estimator)
 
     X_train = pd.DataFrame(X_train)
+    
+    if use_columns is None:
+        use_columns = X_train.columns
+
+    drop_columns = [c for c in X_train.columns if c not in use_columns]
 
     kf = StratifiedKFold(random_state=seed, n_splits=n_folds, shuffle=True)
     fold_logloss = []
