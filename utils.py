@@ -1,6 +1,7 @@
 import os
 import random
 from itertools import combinations
+import gc
 
 import numpy as np
 import pandas as pd
@@ -54,7 +55,7 @@ from scipy import stats as scistats
 
 # scistats.gmean(np.vstack((y_train,y_train/2)))
 
-def merge_models(models, method='gmean'):
+def merge_models(models, method='gmean', show_std=False, n_folds=None, n_splits=None, seed=None):
     train_target = pd.read_csv('train.csv', sep=';')['cardio'].values.ravel()
     train_predict = pd.DataFrame()
     test_predict = pd.DataFrame()
@@ -74,14 +75,22 @@ def merge_models(models, method='gmean'):
               log_loss(split_target,
                        split_predict.mean(axis=1) if method == 'mean' else scistats.gmean(split_predict, axis=1)),
               sep='\t')
+
+    if show_std:
+        if not n_splits or not n_folds or not seed:
+            print('Please provide n_splits, n_folds and seed params to show std')
+        else:
+            pass
     return test_predict.mean(axis=1) if method == 'mean' else scistats.gmean(test_predict, axis=1)
 
 
-def generate_interactions(data, columns, degree=3):
+def generate_interactions(data, columns, min_degree=2, degree=3, white_list=None):
     result = pd.DataFrame()
-    for i in range(2, degree + 1):
+    for i in range(min_degree, degree + 1):
         for comb in combinations(columns, i):
             name = '_'.join(comb)
+            if white_list and name not in white_list:
+                continue
             result[name] = data[list(comb)].apply(lambda row: '_'.join([str(i) for i in row]), axis=1)
     return result
 
@@ -120,19 +129,20 @@ def populate_mean_columns(x_train, y_train, x_test, columns, alpha, n_splits=5):
     return x_train, x_test
 
 
-def fit_predict_model(create_callback, X_train, y_train, X_test, alpha, mean_columns=[], drop_columns=[]):
+def fit_predict_model(create_callback, X_train, y_train, X_test, alpha, mean_columns=[], drop_columns=[], weight_column=None):
+    gc.collect()
     x1, x2 = populate_mean_columns(X_train, y_train, X_test, mean_columns, alpha=alpha)
     x1.drop(drop_columns, axis=1, inplace=True)
     x2.drop(drop_columns, axis=1, inplace=True)
     model = create_callback(x1, x2)
-    model.fit(x1, y_train)
+    model.fit(x1, y_train, sample_weight=X_train[weight_column] if weight_column else None)
     result = model.predict_proba(x2)
     return result[:, 1] if result.shape[1] > 1 else result[:, 0]
 
 
 def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, mean_columns=[], model_name="",
                   n_folds=5, n_splits=0,
-                  create_callback=None, verbose=1, seed=1205, stratification_groups=None, alpha=10):
+                  create_callback=None, verbose=1, seed=1205, stratification_groups=None, alpha=10, weight_column=None):
     np.random.seed(seed)
     random.seed(seed)
 
@@ -144,7 +154,7 @@ def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, me
             return clone(estimator)
 
     X_train = pd.DataFrame(X_train)
-    
+
     if use_columns is None:
         use_columns = X_train.columns
 
@@ -161,7 +171,8 @@ def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, me
                                                     X_train.iloc[test_idx],
                                                     mean_columns=mean_columns,
                                                     drop_columns=drop_columns,
-                                                    alpha=alpha)
+                                                    alpha=alpha,
+                                                    weight_column=weight_column)
         fold_logloss.append(log_loss(y_train[test_idx], train_predict[test_idx]))
 
     if verbose:
@@ -187,7 +198,8 @@ def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, me
                                                                        X_train.iloc[test_idx],
                                                                        mean_columns=mean_columns,
                                                                        drop_columns=drop_columns,
-                                                                       alpha=alpha), axis=0)
+                                                                       alpha=alpha,
+                                                                       weight_column=weight_column), axis=0)
             split_logloss.append(log_loss(y_train[test_idx], train_predict[test_idx]))
         if verbose:
             print(str(n_splits) + " Splits logloss:")
@@ -200,7 +212,8 @@ def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, me
         test_predict = fit_predict_model(create_callback, X_train, y_train, X_test,
                                          mean_columns=mean_columns,
                                          drop_columns=drop_columns,
-                                         alpha=alpha)
+                                         alpha=alpha,
+                                         weight_column=weight_column)
 
         save_model_result(model_name, train_predict, test_predict, split_target, split_predict)
         if verbose:
