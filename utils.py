@@ -103,8 +103,8 @@ def get_mean_columns(x_train, y_train, x_test, columns, alpha):
     #     test.reset_index(inplace=True, drop=True)
 
     train["target"] = y_train
-    glob_mean = y_train.mean()
-
+    glob_mean = 0.5 #0.4997  # y_train.mean()
+    # print(glob_mean)
     for c in columns:
         K = train.groupby([c]).size()
         mean_loc = train.groupby([c])["target"].mean()
@@ -116,7 +116,7 @@ def get_mean_columns(x_train, y_train, x_test, columns, alpha):
     return test.drop(columns, axis=1)
 
 
-def populate_mean_columns(x_train, y_train, x_test, columns, alpha, n_splits=5):
+def populate_mean_columns(x_train, y_train, x_test, columns, alpha, n_splits=10):
     test_extentions = get_mean_columns(x_train, y_train, x_test, columns, alpha)
     x_train = x_train.reindex(columns=np.append(x_test.columns.values, test_extentions.columns.values))
     x_test = pd.concat((x_test, test_extentions), axis=1)
@@ -128,21 +128,28 @@ def populate_mean_columns(x_train, y_train, x_test, columns, alpha, n_splits=5):
 
     return x_train, x_test
 
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.model_selection import StratifiedKFold
 
-def fit_predict_model(create_callback, X_train, y_train, X_test, alpha, mean_columns=[], drop_columns=[], weight_column=None):
+def fit_predict_model(create_callback, X_train, y_train, X_test, alpha, mean_columns=[], drop_columns=[]):
     gc.collect()
     x1, x2 = populate_mean_columns(X_train, y_train, X_test, mean_columns, alpha=alpha)
     x1.drop(drop_columns, axis=1, inplace=True)
     x2.drop(drop_columns, axis=1, inplace=True)
     model = create_callback(x1, x2)
-    model.fit(x1, y_train, sample_weight=X_train[weight_column] if weight_column else None)
+
+    # TODO: ALARM!
+    # kf = StratifiedKFold(n_splits=7, random_state=12345)
+    # model = CalibratedClassifierCV(model, cv=kf, method='isotonic')
+
+    model.fit(x1, y_train)
     result = model.predict_proba(x2)
     return result[:, 1] if result.shape[1] > 1 else result[:, 0]
 
 
 def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, mean_columns=[], model_name="",
                   n_folds=5, n_splits=0,
-                  create_callback=None, verbose=1, seed=1205, stratification_groups=None, alpha=10, weight_column=None):
+                  create_callback=None, verbose=1, seed=11241, stratification_groups=None, alpha=10):
     np.random.seed(seed)
     random.seed(seed)
 
@@ -171,8 +178,7 @@ def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, me
                                                     X_train.iloc[test_idx],
                                                     mean_columns=mean_columns,
                                                     drop_columns=drop_columns,
-                                                    alpha=alpha,
-                                                    weight_column=weight_column)
+                                                    alpha=alpha)
         fold_logloss.append(log_loss(y_train[test_idx], train_predict[test_idx]))
 
     if verbose:
@@ -198,8 +204,7 @@ def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, me
                                                                        X_train.iloc[test_idx],
                                                                        mean_columns=mean_columns,
                                                                        drop_columns=drop_columns,
-                                                                       alpha=alpha,
-                                                                       weight_column=weight_column), axis=0)
+                                                                       alpha=alpha), axis=0)
             split_logloss.append(log_loss(y_train[test_idx], train_predict[test_idx]))
         if verbose:
             print(str(n_splits) + " Splits logloss:")
@@ -212,10 +217,40 @@ def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, me
         test_predict = fit_predict_model(create_callback, X_train, y_train, X_test,
                                          mean_columns=mean_columns,
                                          drop_columns=drop_columns,
-                                         alpha=alpha,
-                                         weight_column=weight_column)
+                                         alpha=alpha)
 
         save_model_result(model_name, train_predict, test_predict, split_target, split_predict)
         if verbose:
             print(model_name, 'results saved!')
-    return np.mean(fold_logloss), np.mean(split_logloss) if n_splits > 0 else None
+    return np.mean(fold_logloss), np.mean(split_logloss) if n_splits > 0 else None #np.std(fold_logloss)  #
+
+
+def new_features(data):
+    data["BMI"] = 10000 * data["weight"] / (data["height"] * data["height"])
+    data["BMI_1"] = 100 * data["weight"] / data["height"]
+    data["BMI_3"] = 1000000 * data["weight"] / (data["height"] * data["height"] * data["height"])
+    data["BMI_4"] = 100000000 * data["weight"] / (data["height"] * data["height"] * data["height"] * data["height"])
+    data["ap_dif"] = data["ap_hi"] - data["ap_lo"]
+    data["MAP"] = (data["ap_lo"] * 2 + data["ap_dif"]) / 3.0
+
+    data["age_years"] = np.round(data["age"] / 365)
+
+    age_bins = [0, 14000, 14980, 15700, 16420, 17140, 17890, 18625, 19355, 20090, 20820, 21555, 22280, 22990, 24000]
+    age_names = list(range(1, len(age_bins)))  # [30, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64]
+    data["age_group"] = pd.cut(data['age'], age_bins, labels=age_names).astype('int')
+    data["age_group_MAPX"] = data["age_group"] * data["MAP"]
+
+    bins = [0, 70, 90, 120, 140, 160, 190, 20000]
+    names = list(range(len(bins) - 1))
+    data["ap_hi_group"] = pd.cut(data['ap_hi'], bins, labels=names).astype('int')
+
+    bins = [-1, 40, 60, 80, 90, 100, 2000000]
+    names = list(range(len(bins) - 1))
+    data["ap_lo_group"] = pd.cut(data['ap_lo'], bins, labels=names).astype('int')
+
+    data["weight_group"] = pd.qcut(data['weight'], 10, labels=False).astype('int')
+
+    data["height_group"] = pd.qcut(data['height'], 10, labels=False).astype('int')
+    data["BMI_group"] = pd.qcut(data['height'], 10, labels=False).astype('int')
+
+    return data
