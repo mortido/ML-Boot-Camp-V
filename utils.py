@@ -1,7 +1,7 @@
+import gc
 import os
 import random
 from itertools import combinations
-import gc
 
 import numpy as np
 import pandas as pd
@@ -84,36 +84,49 @@ def merge_models(models, method='gmean', show_std=False, n_folds=None, n_splits=
     return test_predict.mean(axis=1) if method == 'mean' else scistats.gmean(test_predict, axis=1)
 
 
-def generate_interactions(data, columns, min_degree=2, degree=3, white_list=None):
-    result = pd.DataFrame()
-    for i in range(min_degree, degree + 1):
-        for comb in combinations(columns, i):
-            name = '_'.join(comb)
-            if white_list and name not in white_list:
-                continue
-            result[name] = data[list(comb)].apply(lambda row: '_'.join([str(i) for i in row]), axis=1)
-    return result
+# def generate_interactions(data, columns, min_degree=2, degree=3, white_list=None):
+#     result = pd.DataFrame()
+#     for i in range(min_degree, degree + 1):
+#         for comb in combinations(columns, i):
+#             name = '_'.join(comb)
+#             if white_list and name not in white_list:
+#                 continue
+#             result[name] = data[list(comb)].apply(lambda row: '_'.join([str(i) for i in row]), axis=1)
+#     return result
 
 
 def get_mean_columns(x_train, y_train, x_test, columns, alpha):
-    train = x_train[columns].copy()
-    test = x_test[columns].copy()
+    unique_cols = set()
+    for c in columns:
+        if isinstance(c, (list, tuple)):
+            unique_cols.update(c)
+        else:
+            unique_cols.add(c)
+    unique_cols = list(unique_cols)
+
+    train = x_train[unique_cols].copy()
+    test = x_test[unique_cols].copy()
 
     #     train.reset_index(inplace=True, drop=True)
     #     test.reset_index(inplace=True, drop=True)
 
     train["target"] = y_train
-    glob_mean = 0.5 #0.4997  # y_train.mean()
+    glob_mean = 0.5  # 0.4997  # y_train.mean()
     # print(glob_mean)
     for c in columns:
-        K = train.groupby([c]).size()
-        mean_loc = train.groupby([c])["target"].mean()
+        K = train.groupby(c).size()
+        mean_loc = train.groupby(c)["target"].mean()
         values = (mean_loc * K + glob_mean * alpha) / (K + alpha)
-        values.name = c + "_target_mean"
+
+        if isinstance(c, (list, tuple)):
+            values.name = '_'.join(c) + "_target_mean"
+        else:
+            values.name = c + "_target_mean"
+
         test = test.join(values, on=c)
         test.loc[test[values.name].isnull(), values.name] = glob_mean
 
-    return test.drop(columns, axis=1)
+    return test.drop(unique_cols, axis=1)
 
 
 def populate_mean_columns(x_train, y_train, x_test, columns, alpha, n_splits=10):
@@ -128,8 +141,10 @@ def populate_mean_columns(x_train, y_train, x_test, columns, alpha, n_splits=10)
 
     return x_train, x_test
 
+
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import StratifiedKFold
+
 
 def fit_predict_model(create_callback, X_train, y_train, X_test, alpha, mean_columns=[], drop_columns=[]):
     gc.collect()
@@ -222,7 +237,7 @@ def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, me
         save_model_result(model_name, train_predict, test_predict, split_target, split_predict)
         if verbose:
             print(model_name, 'results saved!')
-    return np.mean(fold_logloss), np.mean(split_logloss) if n_splits > 0 else None #np.std(fold_logloss)  #
+    return np.mean(fold_logloss), np.mean(split_logloss) if n_splits > 0 else None  # np.std(fold_logloss)  #
 
 
 def new_features(data):
@@ -252,5 +267,82 @@ def new_features(data):
 
     data["height_group"] = pd.qcut(data['height'], 10, labels=False).astype('int')
     data["BMI_group"] = pd.qcut(data['height'], 10, labels=False).astype('int')
+
+    return data
+
+
+def clean_data(data):
+    data['error_group'] = 0
+
+    # weight/height correction
+    idx = (data['height'] < 130) & (data['weight'] > 150)
+    data.loc[idx, ["height", "weight"]] = data.loc[idx, ["weight", "height"]].values
+    #     data.loc[idx, 'error_group'] = 100-1
+    #     data.loc[data['weight']<20, "weight"] *= 10
+    #     data.loc[data['weight']<20, "weight"] *= 10
+    #     data.loc[data['weight']<25, "weight"] += 100
+
+    # preasure correction
+
+    data.loc[data["ap_hi"] < 0, "ap_hi"] *= -1
+    data.loc[data["ap_lo"] < 0, "ap_lo"] *= -1
+
+    for i in range(10):
+        str_i = str(i)
+        data['hi_' + str_i + 's'] = data['ap_hi'].apply(lambda x: str(x).count(str_i))
+        #         data[str(i)+'lo'] = data['ap_lo'].apply(lambda x: str(x).count(str(i)))
+        #         data[str(i)+'hilo'] = data[str(i)+'hi']+data[str(i)+'lo']
+        #         data=data.drop(str(i)+'lo', axis=1)
+        for j in range(10):
+            str_j = str_i + str(j)
+            data['hi_' + str_j + 's'] = data['ap_hi'].apply(lambda x: str(x).count(str_j))
+
+    data.loc[(data['ap_lo'] < 20), 'error_group'] = 5
+    data.loc[(data['ap_hi'] < 50), 'error_group'] = 6
+    data.loc[(data['ap_lo'] > 250), 'error_group'] = 1
+    data.loc[(data['ap_lo'] > 4000), 'error_group'] = 2
+    data.loc[(data['ap_hi'] > 250), 'error_group'] = 3
+    data.loc[(data['ap_hi'] > 10000), 'error_group'] = 4
+
+    data.loc[(data["ap_hi"] < 20) & (data["ap_hi"] > 10), "ap_hi"] *= 10
+    data.loc[(data["ap_lo"] < 15) & (data["ap_lo"] > 2), "ap_lo"] *= 10
+
+    idx = data['ap_hi'] > 10000
+    data.loc[idx, 'ap_hi'] = 10 * (data.loc[idx, 'ap_hi'] // 1000)
+    data.loc[data['ap_lo'] >= 10000, 'ap_lo'] //= 100
+
+    #     data.loc[data['ap_lo'].isin([1100])&(data['ap_hi']>160), 'ap_lo'] = 110
+    #     data.loc[data['ap_lo'].isin([1100]), 'ap_lo'] = 100
+    #     data.loc[(data['ap_lo']>250)&(data['ap_lo']<4000)&(data['ap_lo']%100==0), 'ap_lo'] /= 10
+
+    manual_update = [
+
+        # id	age	gender	height	weight	ap_hi	ap_lo	cholesterol	gluc	smoke	alco	active	cardio	BMI
+        # 12494	16905	2	163	63.0	1	2088	1	1	1.0	0.0	1.0	0	23.711845
+        # 42591	18191	2	162	63.0	140	1900	1	1	1.0	0.0	1.0	1	24.005487
+        # 78873	20323	1	168	68.0	130	1900	1	1	0.0	0.0	1.0	0	24.092971
+        # 51749	18419	1	169	62.0	1	2088	1	1	0.0	0.0	1.0	-5	21.707923
+        (12494, ['ap_hi', 'ap_lo'], [120, 80]),
+        (42591, ['ap_hi', 'ap_lo'], [140, 90]),  # ?
+        (78873, ['ap_hi', 'ap_lo'], [130, 100]),  # ?
+        (51749, ['ap_hi', 'ap_lo'], [120, 80]),
+
+        # 57807	20496	1	164	62.0	70	1100	1	1	0.0	0.0	0.0	0	23.051755
+        # 60477	18716	1	171	80.0	1	1088	1	1	0.0	0.0	1.0	1	27.358845
+        # 91198	18182	2	186	95.0	100	901	2	2	0.0	0.0	1.0	0	27.459822
+        # 6580	19079	1	176	92.0	1	1099	1	1	0.0	NaN	1.0	-5	29.700413
+        (57807, ['ap_hi', 'ap_lo'], [170, 100]),
+        (60477, ['ap_hi', 'ap_lo'], [110, 80]),
+        (91198, ['ap_hi', 'ap_lo'], [100, 90]),
+        (6580, ['ap_hi', 'ap_lo'], [110, 90]),
+
+        # 44701	22801	1	163	115.0	20	170	1	1	0.0	0.0	1.0	1	43.283526
+        # 94673	22551	1	169	88.0	10	160	3	3	0.0	0.0	0.0	1	30.811246
+        (44701, ['ap_hi', 'ap_lo'], [120, 70]),
+        (94673, ['ap_hi', 'ap_lo'], [110, 60]),
+
+    ]
+    for idx, cols, update in manual_update:
+        data.loc[data['id'] == idx, cols] = update
 
     return data
