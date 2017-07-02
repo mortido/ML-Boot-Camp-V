@@ -346,3 +346,184 @@ def clean_data(data):
         data.loc[data['id'] == idx, cols] = update
 
     return data
+
+
+def clean_data2(data):
+    # weight/height correction
+    idx = (data['height'] < 130) & (data['weight'] > 150)
+    data.loc[idx, ["height", "weight"]] = data.loc[idx, ["weight", "height"]].values
+
+    # preasure correction
+    data.loc[data["ap_hi"] < 0, "ap_hi"] *= -1
+    data.loc[data["ap_lo"] < 0, "ap_lo"] *= -1
+
+
+    data.loc[(data["ap_hi"] < 20) & (data["ap_hi"] > 10), "ap_hi"] *= 10
+    data.loc[(data["ap_lo"] < 15) & (data["ap_lo"] > 2), "ap_lo"] *= 10
+
+    idx = data['ap_hi'] > 10000
+    data.loc[idx, 'ap_hi'] = 10 * (data.loc[idx, 'ap_hi'] // 1000)
+    data.loc[data['ap_lo'] >= 10000, 'ap_lo'] //= 100
+    
+    data.loc[data['ap_lo'] == 1000, 'ap_lo'] = 100
+    data.loc[data['ap_lo'] == 1200, 'ap_lo'] = 120
+    data.loc[data['ap_lo'] == 1001, 'ap_lo'] = 100
+    data.loc[data['ap_lo'] == 1120, 'ap_lo'] = 120
+    data.loc[data['ap_lo'] == 1110, 'ap_lo'] = 110
+    
+    idx = (data['ap_lo'] == 1100) & (data['ap_hi'] < 100)
+    data.loc[idx, 'ap_lo'] = data.loc[idx, 'ap_hi']
+    data.loc[idx, 'ap_hi'] = 110
+    
+    data.loc[data['ap_lo'] == 1100, 'ap_lo'] = 100 # not sure...
+    
+    # ...
+    idx = (data['ap_hi'] - data['ap_lo'] < -10) & (data['ap_lo'] < 190) & (data['ap_hi'] > 30) & (data['ap_hi'] <= 100)
+    data.loc[idx, ['ap_hi', 'ap_lo']]=data.loc[idx, ['ap_lo', 'ap_hi']].values
+    
+    data.loc[data['ap_hi'] == 20, 'ap_hi'] = 120
+    
+    data.loc[data['ap_lo'].isin([800,
+                                     8044,
+                                     80,
+                                     802,
+                                     8000,
+                                     8099,
+                                     8079,
+                                     809,
+                                     801,
+                                     810,
+                                     8200,
+                                     820,
+                                     880,
+                                     808,
+                                     8022,
+                                    ]), 'ap_lo'] = 80
+    
+    data.loc[data['ap_lo'] == 1900, 'ap_lo'] = 90
+    
+    data.loc[data['ap_lo'] == 1130, 'ap_lo'] = 130
+    data.loc[data['ap_lo'] == 1300, 'ap_lo'] = 130
+    
+    data.loc[data['ap_lo'] == 1140, 'ap_lo'] = 140
+    data.loc[data['ap_lo'] == 1400, 'ap_lo'] = 140
+    
+    data.loc[data['ap_lo'] > 1000, 'ap_lo'] //= 10
+    data.loc[data['ap_lo'] > 890, 'ap_lo'] = 90
+    data.loc[data['ap_lo'] > 790, 'ap_lo'] = 80
+    data.loc[data['ap_lo'] > 690, 'ap_lo'] = 70
+    
+    data.loc[data['ap_lo'] == 585, 'ap_lo'] = 85
+    data.loc[data['ap_lo'] == 602, 'ap_lo'] = 60
+    data.loc[data['ap_lo'] == 570, 'ap_lo'] = 70
+    
+    idx = data['ap_hi'] // 100 == 11
+    data.loc[idx, 'ap_hi'] = data.loc[idx, 'ap_hi'] % 1000
+    data.loc[data['ap_hi'] >= 1000, 'ap_hi'] //= 10
+    
+#     data.loc[data['ap_hi'] == 138, ['ap_hi', 'ap_lo']] = [130, 80]
+#     data.loc[data['ap_hi'] == 149, ['ap_hi', 'ap_lo']] = [140, 90]
+#     data.loc[data['ap_hi'] == 148, ['ap_hi', 'ap_lo']] = [140, 80]
+#     data.loc[data['ap_hi'] == 108, ['ap_hi', 'ap_lo']] = [100, 80]
+#     data.loc[data['ap_hi'] == 117, ['ap_hi', 'ap_lo']] = [110, 70]
+#     data.loc[data['ap_hi'] == 118, ['ap_hi', 'ap_lo']] = [110, 80]
+    
+#     data.loc[data["ap_hi"] > 1000, "ap_hi"] //= 10
+#     idx = (data['ap_hi'] - data['ap_lo'] < -10) & (data['ap_lo'] < 250) & (data['ap_hi'] > 30)
+#     data.loc[idx, ['ap_lo']]=data.loc[idx, ['ap_lo']]%100
+    
+    manual_update = [
+# 20438	50.324435	1	160	70.0	160	7100	1	1	0.0	1.0	1.0	1
+# 29821	52.350445	1	155	81.0	160	8100	1	1	0.0	0.0	1.0	1
+# 47030	50.198494	1	156	65.0	150	9011	2	2	0.0	0.0	1.0	1
+# 59157	49.765914	1	161	60.0	150	7099	1	1	0.0	0.0	1.0	1
+# 10586	47.767283	1	160	75.0	170	4100	1	1	0.0	0.0	1.0	-5
+# 50848	61.223819	1	158	59.0	180	8100	1	2	0.0	NaN	1.0	-5
+# 63276	58.291581	1	162	69.0	160	9100	1	1	0.0	0.0	1.0	-5
+        
+    (20438, ['ap_lo'], [70]),
+    (29821, ['ap_lo'], [80]),
+    (47030, ['ap_lo'], [90]),
+    (59157, ['ap_lo'], [70]),
+    (10586, ['ap_lo'], [100]),
+    (50848, ['ap_lo'], [80]),
+    (63276, ['ap_lo'], [90]),
+        
+        
+# WORSE vvvvv
+# 9482	53.464750	1	162	69.0	130	9100	1	1	0.0	0.0	1.0	1
+# 17260	58.770705	2	169	78.0	130	9011	1	1	1.0	1.0	1.0	1
+# 22832	39.720739	2	179	70.0	120	8500	1	1	0.0	0.0	1.0	0
+# 33191	54.570842	2	170	70.0	112	5700	1	2	0.0	0.0	1.0	1
+# 62058	59.975359	2	179	62.0	130	9800	1	1	0.0	0.0	1.0	0
+# 75482	55.854894	1	164	70.0	125	6800	1	1	0.0	0.0	1.0	0
+# 90139	53.314168	1	159	61.0	110	8077	1	1	0.0	0.0	1.0	0
+# 95886	50.565366	2	165	68.0	113	5700	1	1	0.0	0.0	1.0	0
+# 26985	52.062971	1	151	74.0	125	9100	1	1	NaN	0.0	1.0	-5
+# 45450	49.623546	1	170	86.0	125	4700	2	1	0.0	0.0	1.0	-5
+# 74784	57.993155	1	165	65.0	120	8100	3	3	NaN	0.0	0.0	-5
+    (9482, ['ap_lo'], [90]),
+    (17260, ['ap_lo'], [90]),
+    (22832, ['ap_lo'], [80]),
+    (33191, ['ap_lo'], [70]),
+    (62058, ['ap_lo'], [80]),
+    (75482, ['ap_lo'], [80]),
+    (90139, ['ap_lo'], [80]),
+    (95886, ['ap_lo'], [70]),
+    (26985, ['ap_lo'], [90]),
+    (45450, ['ap_lo'], [70]),
+    (74784, ['ap_lo'], [80]),
+        
+# 12494	46.283368	2	163	63.0	1	2088	1	1	1.0	0.0	1.0	0
+# 60477	51.241615	1	171	80.0	1	1088	1	1	0.0	0.0	1.0	1
+# 6580	52.235455	1	176	92.0	1	1099	1	1	0.0	NaN	1.0	-5
+# 51749	50.428474	1	169	62.0	1	2088	1	1	0.0	0.0	1.0	-5
+        
+        (12494, ['ap_hi', 'ap_lo'], [120, 80]),
+        (60477, ['ap_hi', 'ap_lo'], [110, 80]),  
+        (6580, ['ap_hi', 'ap_lo'], [110, 90]),
+        (51749, ['ap_hi', 'ap_lo'], [120, 80]),
+# 2654	41.385352	1	160	60.0	902	60	1	1	0.0	0.0	1.0	0
+# 6822	39.493498	1	168	63.0	909	60	2	1	0.0	0.0	1.0	0
+# 13616	62.036961	1	155	87.0	701	110	1	1	0.0	0.0	1.0	1
+# 57646	55.638604	1	162	50.0	309	0	1	1	0.0	0.0	1.0	0
+# 58349	54.225873	1	162	67.0	401	80	1	3	0.0	0.0	1.0	1
+# 59301	57.412731	1	154	41.0	806	0	1	1	0.0	0.0	1.0	0
+# 77010	50.680356	1	164	54.0	960	60	1	1	0.0	0.0	1.0	0
+# 1079	61.796030	2	170	74.0	400	60	1	1	0.0	0.0	1.0	-5
+# 23199	49.541410	1	166	64.0	957	70	1	1	NaN	0.0	0.0	-5
+# 62837	54.516085	2	170	79.0	509	0	1	1	0.0	0.0	1.0	-5
+        
+    (2654, ['ap_hi', 'ap_lo'], [90, 60]),
+    (6822, ['ap_hi', 'ap_lo'], [90, 60]),
+    (13616, ['ap_hi', 'ap_lo'], [170, 110]),
+    (57646, ['ap_hi', 'ap_lo'], [130, 980]),
+    (58349, ['ap_hi', 'ap_lo'], [140, 80]),
+    (59301, ['ap_hi', 'ap_lo'], [80, 60]),
+    (77010, ['ap_hi', 'ap_lo'], [90, 60]),
+    (1079, ['ap_hi', 'ap_lo'], [100, 60]),
+    (23199, ['ap_hi', 'ap_lo'], [95, 70]),
+    (62837, ['ap_hi', 'ap_lo'], [150, 90]),
+        
+# 57646	55.638604	1	162	50.0	130	980	1	1	0.0	0.0	1.0	0
+        (57646, ['ap_lo'], [80]),
+    ]
+    for idx, cols, update in manual_update:
+        data.loc[data['id'] == idx, cols] = update
+    
+    #################
+    
+#     data.loc[(data['ap_lo']==30), 'ap_lo'] = 80
+    
+    data.loc[(data['ap_hi']==906), ['ap_hi', 'ap_lo']] = [90, 60]
+    data.loc[(data['ap_hi']==907), ['ap_hi', 'ap_lo']] = [90, 70]
+#     data.loc[(data['ap_hi']==806), ['ap_hi', 'ap_lo']] = [80, 60]
+#     data.loc[(data['ap_hi']==309), ['ap_hi', 'ap_lo']] = [130, 90]
+    data['error_group'] = 0
+    data.loc[(data['ap_lo'] < 20), 'error_group'] = 5
+    data.loc[(data['ap_hi'] < 50), 'error_group'] = 6
+    data.loc[(data['ap_lo'] > 250), 'error_group'] = 1
+    data.loc[(data['ap_lo'] > 4000), 'error_group'] = 2
+    data.loc[(data['ap_hi'] > 250), 'error_group'] = 3
+    data.loc[(data['ap_hi'] > 10000), 'error_group'] = 4
+    return data
