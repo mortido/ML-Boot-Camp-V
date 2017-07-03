@@ -84,87 +84,8 @@ def merge_models(models, method='gmean', show_std=False, n_folds=None, n_splits=
     return test_predict.mean(axis=1) if method == 'mean' else scistats.gmean(test_predict, axis=1)
 
 
-# def generate_interactions(data, columns, min_degree=2, degree=3, white_list=None):
-#     result = pd.DataFrame()
-#     for i in range(min_degree, degree + 1):
-#         for comb in combinations(columns, i):
-#             name = '_'.join(comb)
-#             if white_list and name not in white_list:
-#                 continue
-#             result[name] = data[list(comb)].apply(lambda row: '_'.join([str(i) for i in row]), axis=1)
-#     return result
-
-
-def get_mean_columns(x_train, y_train, x_test, columns, alpha):
-    unique_cols = set()
-    for c in columns:
-        if isinstance(c, (list, tuple)):
-            unique_cols.update(c)
-        else:
-            unique_cols.add(c)
-    unique_cols = list(unique_cols)
-
-    train = x_train[unique_cols].copy()
-    test = x_test[unique_cols].copy()
-
-    #     train.reset_index(inplace=True, drop=True)
-    #     test.reset_index(inplace=True, drop=True)
-
-    train["target"] = y_train
-    glob_mean = 0.5  # 0.4997  # y_train.mean()
-    # print(glob_mean)
-    for c in columns:
-        K = train.groupby(c).size()
-        mean_loc = train.groupby(c)["target"].mean()
-        values = (mean_loc * K + glob_mean * alpha) / (K + alpha)
-
-        if isinstance(c, (list, tuple)):
-            values.name = '_'.join(c) + "_target_mean"
-        else:
-            values.name = c + "_target_mean"
-
-        test = test.join(values, on=c)
-        test.loc[test[values.name].isnull(), values.name] = glob_mean
-
-    return test.drop(unique_cols, axis=1)
-
-
-def populate_mean_columns(x_train, y_train, x_test, columns, alpha, n_splits=10):
-    test_extentions = get_mean_columns(x_train, y_train, x_test, columns, alpha)
-    x_train = x_train.reindex(columns=np.append(x_test.columns.values, test_extentions.columns.values))
-    x_test = pd.concat((x_test, test_extentions), axis=1)
-    kf = StratifiedKFold(random_state=2707, n_splits=n_splits, shuffle=True)
-    for train_idx, test_idx in kf.split(x_train, y_train):
-        extentions = get_mean_columns(x_train.iloc[train_idx], y_train[train_idx], x_train.iloc[test_idx], columns,
-                                      alpha)
-        x_train.loc[x_train.index[test_idx], extentions.columns] = extentions
-
-    return x_train, x_test
-
-
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.model_selection import StratifiedKFold
-
-
-def fit_predict_model(create_callback, X_train, y_train, X_test, alpha, mean_columns=[], drop_columns=[]):
-    gc.collect()
-    x1, x2 = populate_mean_columns(X_train, y_train, X_test, mean_columns, alpha=alpha)
-    x1.drop(drop_columns, axis=1, inplace=True)
-    x2.drop(drop_columns, axis=1, inplace=True)
-    model = create_callback(x1, x2)
-
-    # TODO: ALARM!
-    # kf = StratifiedKFold(n_splits=7, random_state=12345)
-    # model = CalibratedClassifierCV(model, cv=kf, method='isotonic')
-
-    model.fit(x1, y_train)
-    result = model.predict_proba(x2)
-    return result[:, 1] if result.shape[1] > 1 else result[:, 0]
-
-
-def execute_model(estimator, X_train, y_train, X_test=None, use_columns=None, mean_columns=[], model_name="",
-                  n_folds=5, n_splits=0,
-                  create_callback=None, verbose=1, seed=11241, stratification_groups=None, alpha=10):
+def execute_model(estimator, X_train, y_train, X_test=None, model_name="",
+                  n_folds=5, n_splits=0, create_callback=None, verbose=1, seed=11241, stratification_groups=None):
     np.random.seed(seed)
     random.seed(seed)
 
