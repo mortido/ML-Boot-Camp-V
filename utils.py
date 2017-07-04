@@ -194,6 +194,7 @@ def clean_data(data):
     # weight/height correction
     idx = (data['height'] < 130) & (data['weight'] > 150)
     data.loc[idx, ["height", "weight"]] = data.loc[idx, ["weight", "height"]].values
+    data.loc[data['height'] < 80, "height"] += 100
 
     # preasure correction
     data.loc[data["ap_hi"] < 0, "ap_hi"] *= -1
