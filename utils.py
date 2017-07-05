@@ -187,6 +187,17 @@ def new_features(data):
     data["height_group"] = pd.qcut(data['height'], 10, labels=False).astype('int')
     data["BMI_group"] = pd.qcut(data['height'], 10, labels=False).astype('int')
 
+    ccc = ['age', 'age_group', 'height', 'weight', 'ap_hi', 'ap_lo', 'cholesterol', 'gluc', 'BMI', 'MAP']
+    for col1 in ccc:
+        data[col1 + '_log'] = np.log(data[col1] + 1.1)
+        for col2 in ccc:
+            data['%s_mul_%s' % (col1, col2)] = data[col1] * data[col2]
+            data['%s_mul_log_%s' % (col1, col2)] = data[col1] * np.log(data[col2] + 1)
+            data['%s_div_log_%s' % (col1, col2)] = data[col1] / (np.log(data[col2] + 1) + 1)
+            if col2 == col1:
+                continue
+            data['%s_div_%s' % (col1, col2)] = data[col1] / (data[col2] + 1)
+
     return data
 
 
