@@ -55,7 +55,23 @@ from scipy import stats as scistats
 
 # scistats.gmean(np.vstack((y_train,y_train/2)))
 
-def merge_models(models, method='gmean', show_std=False, n_folds=None, n_splits=None, seed=None):
+def get_merge_score(models, method='gmean'):
+    train_target = pd.read_csv('train.csv', sep=';')['cardio'].values.ravel()
+    train_predict = pd.DataFrame()
+    split_predict = pd.DataFrame()
+    split_target = None
+    for i, m in enumerate(models):
+        tr_pr, _, split_target, sp_pr = load_model(m)
+        train_predict['m' + str(i)] = tr_pr
+        split_predict['m' + str(i)] = sp_pr
+
+    score1 = log_loss(train_target, train_predict.mean(axis=1) if method == 'mean' else scistats.gmean(train_predict, axis=1))
+    score2 = log_loss(split_target, split_predict.mean(axis=1) if method == 'mean' else scistats.gmean(split_predict, axis=1))
+
+    return score1, score2
+
+
+def merge_models(models, method='gmean'):
     train_target = pd.read_csv('train.csv', sep=';')['cardio'].values.ravel()
     train_predict = pd.DataFrame()
     test_predict = pd.DataFrame()
@@ -76,11 +92,6 @@ def merge_models(models, method='gmean', show_std=False, n_folds=None, n_splits=
                        split_predict.mean(axis=1) if method == 'mean' else scistats.gmean(split_predict, axis=1)),
               sep='\t')
 
-    if show_std:
-        if not n_splits or not n_folds or not seed:
-            print('Please provide n_splits, n_folds and seed params to show std')
-        else:
-            pass
     return test_predict.mean(axis=1) if method == 'mean' else scistats.gmean(test_predict, axis=1)
 
 
@@ -162,14 +173,21 @@ def new_features(data):
     data["BMI_3"] = 1000000 * data["weight"] / (data["height"] * data["height"] * data["height"])
     data["BMI_4"] = 100000000 * data["weight"] / (data["height"] * data["height"] * data["height"] * data["height"])
     data["ap_dif"] = data["ap_hi"] - data["ap_lo"]
+    data["ap_dif_2"] = np.abs(data["ap_hi"] - data["ap_lo"])
     data["MAP"] = (data["ap_lo"] * 2 + data["ap_dif"]) / 3.0
+    data["MAP_2"] = (data["ap_lo"] + data["ap_hi"]) / 2.0
 
-    data["age_years"] = np.round(data["age"] / 365)
+    data["age_years"] = np.floor(data["age"] / 365.242199)
+    data["age_years_2"] = np.round(data["age"] / 365.242199)
 
     age_bins = [0, 14000, 14980, 15700, 16420, 17140, 17890, 18625, 19355, 20090, 20820, 21555, 22280, 22990, 24000]
     age_names = list(range(1, len(age_bins)))  # [30, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64]
     data["age_group"] = pd.cut(data['age'], age_bins, labels=age_names).astype('int')
     data["age_group_MAPX"] = data["age_group"] * data["MAP"]
+
+    age_bins = [0, 10000, 14000, 14980, 15700, 16420, 17140, 17890, 18625, 19355, 20090, 20820, 21555, 22280, 22990, 24000]
+    age_names = list(range(1, len(age_bins)))  # [30, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64]
+    data["age_group_orig"] = pd.cut(data['age'], age_bins, labels=age_names).astype('int')
 
     bins = [0, 70, 90, 120, 140, 160, 190, 20000]
     names = list(range(len(bins) - 1))
@@ -181,6 +199,12 @@ def new_features(data):
 
     data["ap_hi_group_2"] = data['ap_hi'] // 10
     data["ap_lo_group_2"] = data['ap_lo'] // 10
+
+    data["ap_hi_group_3"] = data['ap_hi'] // 5
+    data["ap_lo_group_3"] = data['ap_lo'] // 5
+
+    data["ap_hi_group_4"] = np.round(data['ap_hi'] / 10)
+    data["ap_lo_group_4"] = np.round(data['ap_lo'] / 10)
 
     data["weight_group"] = pd.qcut(data['weight'], 10, labels=False).astype('int')
 
@@ -201,16 +225,30 @@ def new_features(data):
     return data
 
 
-def clean_data(data):
-    # weight/height correction
-    idx = (data['height'] < 130) & (data['weight'] > 150)
-    data.loc[idx, ["height", "weight"]] = data.loc[idx, ["weight", "height"]].values
-    data.loc[data['height'] < 80, "height"] += 100
-
-    # preasure correction
+def clean_data(data, light_clean=False):
     data.loc[data["ap_hi"] < 0, "ap_hi"] *= -1
     data.loc[data["ap_lo"] < 0, "ap_lo"] *= -1
 
+    # if light_clean:
+    #     return data
+
+    data['error_group'] = 0
+    data.loc[(data['ap_lo'] < 20), 'error_group'] = 5
+    data.loc[(data['ap_hi'] < 50), 'error_group'] = 6
+    data.loc[(data['ap_lo'] > 250), 'error_group'] = 1
+    data.loc[(data['ap_lo'] > 4000), 'error_group'] = 2
+    data.loc[(data['ap_hi'] > 250), 'error_group'] = 3
+    data.loc[(data['ap_hi'] > 10000), 'error_group'] = 4
+
+    # weight/height correction
+    idx = (data['height'] < 130) & (data['weight'] > 150)
+    data.loc[idx, ["height", "weight"]] = data.loc[idx, ["weight", "height"]].values
+    if not light_clean:
+        data.loc[data['height'] < 80, "height"] += 100
+        # data.loc[data['weight'] < 20, "weight"] *= 10
+        # data.loc[(data['weight'] < 30) & (data['weight'] >= 20), "weight"] += 100
+
+    # preasure correction
     data.loc[(data["ap_hi"] < 20) & (data["ap_hi"] > 10), "ap_hi"] *= 10
     data.loc[(data["ap_lo"] < 15) & (data["ap_lo"] > 2), "ap_lo"] *= 10
 
@@ -358,13 +396,12 @@ def clean_data(data):
     data.loc[(data['ap_hi'] == 907), ['ap_hi', 'ap_lo']] = [90, 70]
     #     data.loc[(data['ap_hi']==806), ['ap_hi', 'ap_lo']] = [80, 60]
     #     data.loc[(data['ap_hi']==309), ['ap_hi', 'ap_lo']] = [130, 90]
-    data['error_group'] = 0
-    data.loc[(data['ap_lo'] < 20), 'error_group'] = 5
-    data.loc[(data['ap_hi'] < 50), 'error_group'] = 6
-    data.loc[(data['ap_lo'] > 250), 'error_group'] = 1
-    data.loc[(data['ap_lo'] > 4000), 'error_group'] = 2
-    data.loc[(data['ap_hi'] > 250), 'error_group'] = 3
-    data.loc[(data['ap_hi'] > 10000), 'error_group'] = 4
+
+    idx = (data['ap_lo'] == 0) & (data['ap_hi'] % 10 > 2)
+    data.loc[idx, 'ap_lo'] = (data.loc[idx, 'ap_hi'] % 10) * 10
+    data.loc[idx, 'ap_hi'] = (data.loc[idx, 'ap_hi'] // 10) * 10
+    data.loc[data['ap_lo'] == 0, 'ap_lo'] = 80
+
     return data
 
 
