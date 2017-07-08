@@ -65,8 +65,10 @@ def get_merge_score(models, method='gmean'):
         train_predict['m' + str(i)] = tr_pr
         split_predict['m' + str(i)] = sp_pr
 
-    score1 = log_loss(train_target, train_predict.mean(axis=1) if method == 'mean' else scistats.gmean(train_predict, axis=1))
-    score2 = log_loss(split_target, split_predict.mean(axis=1) if method == 'mean' else scistats.gmean(split_predict, axis=1))
+    score1 = log_loss(train_target,
+                      train_predict.mean(axis=1) if method == 'mean' else scistats.gmean(train_predict, axis=1))
+    score2 = log_loss(split_target,
+                      split_predict.mean(axis=1) if method == 'mean' else scistats.gmean(split_predict, axis=1))
 
     return score1, score2
 
@@ -185,7 +187,8 @@ def new_features(data):
     data["age_group"] = pd.cut(data['age'], age_bins, labels=age_names).astype('int')
     data["age_group_MAPX"] = data["age_group"] * data["MAP"]
 
-    age_bins = [0, 10000, 14000, 14980, 15700, 16420, 17140, 17890, 18625, 19355, 20090, 20820, 21555, 22280, 22990, 24000]
+    age_bins = [0, 10000, 14000, 14980, 15700, 16420, 17140, 17890, 18625, 19355, 20090, 20820, 21555, 22280, 22990,
+                24000]
     age_names = list(range(1, len(age_bins)))  # [30, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64]
     data["age_group_orig"] = pd.cut(data['age'], age_bins, labels=age_names).astype('int')
 
@@ -225,7 +228,7 @@ def new_features(data):
     return data
 
 
-def clean_data(data, light_clean=False):
+def clean_data(data, light_clean=False, more_clean=False):
     data.loc[data["ap_hi"] < 0, "ap_hi"] *= -1
     data.loc[data["ap_lo"] < 0, "ap_lo"] *= -1
 
@@ -374,16 +377,13 @@ def clean_data(data, light_clean=False):
         (2654, ['ap_hi', 'ap_lo'], [90, 60]),
         (6822, ['ap_hi', 'ap_lo'], [90, 60]),
         (13616, ['ap_hi', 'ap_lo'], [170, 110]),
-        (57646, ['ap_hi', 'ap_lo'], [130, 980]),
+        (57646, ['ap_hi', 'ap_lo'], [130, 80]),
         (58349, ['ap_hi', 'ap_lo'], [140, 80]),
         (59301, ['ap_hi', 'ap_lo'], [80, 60]),
         (77010, ['ap_hi', 'ap_lo'], [90, 60]),
         (1079, ['ap_hi', 'ap_lo'], [100, 60]),
         (23199, ['ap_hi', 'ap_lo'], [95, 70]),
         (62837, ['ap_hi', 'ap_lo'], [150, 90]),
-
-        # 57646	55.638604	1	162	50.0	130	980	1	1	0.0	0.0	1.0	0
-        (57646, ['ap_lo'], [80]),
     ]
     for idx, cols, update in manual_update:
         data.loc[data['id'] == idx, cols] = update
@@ -401,6 +401,12 @@ def clean_data(data, light_clean=False):
     data.loc[idx, 'ap_lo'] = (data.loc[idx, 'ap_hi'] % 10) * 10
     data.loc[idx, 'ap_hi'] = (data.loc[idx, 'ap_hi'] // 10) * 10
     data.loc[data['ap_lo'] == 0, 'ap_lo'] = 80
+
+    if more_clean:
+        idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] > 50) & (data['ap_lo'] > 120)
+        data.loc[idx, 'ap_lo'] %= 100
+        idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] > 50)
+        data.loc[idx, ['ap_hi', 'ap_lo']] = data.loc[idx, ['ap_lo', 'ap_hi']].values
 
     return data
 
