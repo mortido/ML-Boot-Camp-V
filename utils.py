@@ -384,6 +384,26 @@ def clean_data(data, light_clean=False, more_clean=False):
         (1079, ['ap_hi', 'ap_lo'], [100, 60]),
         (23199, ['ap_hi', 'ap_lo'], [95, 70]),
         (62837, ['ap_hi', 'ap_lo'], [150, 90]),
+
+        # id    ap_hi    ap_lo    cardio
+        # 50210    130    1    0
+        # 81260    70    15    1
+        # 57993    120    19    -
+
+        (50210, ['ap_hi', 'ap_lo'], [130, 100]),
+        (81260, ['ap_hi', 'ap_lo'], [70, 50]),
+        (57993, ['ap_hi', 'ap_lo'], [120, 90]),
+
+        # id    ap_hi    ap_lo    cardio
+        # 7657    7    80    0
+        # 94673    10    160    1
+        # 42755    1    30    10
+        (7657, ['ap_hi', 'ap_lo'], [120, 80]),
+        (94673, ['ap_hi', 'ap_lo'], [110, 60]),
+        (42755, ['ap_hi', 'ap_lo'], [120, 80]),
+
+        # 75399    24    20    1
+        (75399, ['ap_hi', 'ap_lo'], [240, 120]),
     ]
     for idx, cols, update in manual_update:
         data.loc[data['id'] == idx, cols] = update
@@ -407,6 +427,10 @@ def clean_data(data, light_clean=False, more_clean=False):
         data.loc[idx, 'ap_lo'] %= 100
         idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] > 50)
         data.loc[idx, ['ap_hi', 'ap_lo']] = data.loc[idx, ['ap_lo', 'ap_hi']].values
+
+        data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 80), 'ap_hi'] = 120
+        data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 70), 'ap_hi'] = 110
+        data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 60), 'ap_hi'] = 100
 
     return data
 
