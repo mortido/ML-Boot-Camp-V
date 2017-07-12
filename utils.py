@@ -41,6 +41,7 @@ def save_model_result(model_name, train_predict, test_predict, split_target, spl
 def load_model(model_name):
     directory = 'models/' + model_name + '/'
     if not os.path.exists(directory):
+        print(model_name)
         return 1 / 0
     train_predict = pd.read_csv(directory + 'train_predict.csv', header=None, sep=';').values.ravel()
     test_predict = pd.read_csv(directory + 'test_predict.csv', header=None, sep=';').values.ravel()
@@ -95,6 +96,47 @@ def merge_models(models, method='gmean'):
               sep='\t')
 
     return test_predict.mean(axis=1) if method == 'mean' else scistats.gmean(test_predict, axis=1)
+
+
+def merge_models2(models, method='gmean'):
+    train_target = pd.read_csv('train.csv', sep=';')['cardio'].values.ravel()
+    train_predict = pd.DataFrame()
+    test_predict = pd.DataFrame()
+    split_predict = pd.DataFrame()
+    for i, m in enumerate(models):
+        tr_pr, ts_pr, split_target, sp_pr = load_model(m)
+        train_predict['m' + str(i)] = tr_pr
+        test_predict['m' + str(i)] = ts_pr
+        split_predict['m' + str(i)] = sp_pr
+
+        print('')
+        print(m)
+        print(log_loss(train_target, tr_pr),
+              log_loss(split_target, sp_pr),
+              log_loss(train_target,
+                       train_predict.mean(axis=1) if method == 'mean' else scistats.gmean(train_predict, axis=1)),
+              log_loss(split_target,
+                       split_predict.mean(axis=1) if method == 'mean' else scistats.gmean(split_predict, axis=1)),
+              sep='\t')
+
+    return test_predict.mean(axis=1) if method == 'mean' else scistats.gmean(test_predict, axis=1), train_predict.mean(
+        axis=1) if method == 'mean' else scistats.gmean(train_predict, axis=1)
+
+
+def score_by_folds(models, X_train, n_folds=5, seed=11241, stratification_groups=None):
+    folds = [[] for _ in range(n_folds)]
+    kf = StratifiedKFold(random_state=seed, n_splits=n_folds, shuffle=True)
+
+    train_target = pd.read_csv('train.csv', sep=';')['cardio'].values.ravel()
+
+    for m in models:
+        tr_pr, _, _, _ = load_model(m)
+        for i, (_, idx) in enumerate(kf.split(X_train, stratification_groups)):
+            score = log_loss(train_target[idx], tr_pr[idx])
+            folds[i].append((score, m))
+    for f in folds:
+        f.sort()
+    return folds
 
 
 def execute_model(estimator, X_train, y_train, X_test=None, model_name="",
@@ -235,13 +277,28 @@ def clean_data(data, light_clean=False, more_clean=False):
     # if light_clean:
     #     return data
 
-    data['error_group'] = 0
-    data.loc[(data['ap_lo'] < 20), 'error_group'] = 5
-    data.loc[(data['ap_hi'] < 50), 'error_group'] = 6
-    data.loc[(data['ap_lo'] > 250), 'error_group'] = 1
-    data.loc[(data['ap_lo'] > 4000), 'error_group'] = 2
-    data.loc[(data['ap_hi'] > 250), 'error_group'] = 3
-    data.loc[(data['ap_hi'] > 10000), 'error_group'] = 4
+    # data['error_group'] = 0
+    # data.loc[(data['ap_lo'] < 20), 'error_group'] = 5
+    # data.loc[(data['ap_hi'] < 50), 'error_group'] = 6
+    # data.loc[(data['ap_lo'] > 250), 'error_group'] = 1
+    # data.loc[(data['ap_lo'] > 4000), 'error_group'] = 2
+    # data.loc[(data['ap_hi'] > 250), 'error_group'] = 3
+    # data.loc[(data['ap_hi'] > 10000), 'error_group'] = 4
+    data.loc[(data['ap_hi'] == 116) & (data['ap_lo'] == 120), 'ap_hi'] = 160
+    # data.loc[(data['ap_hi'] == 120) & (data['ap_lo'] == 150), ['ap_hi', 'ap_lo']] = [120, 50]
+    # data.loc[(data['ap_hi'] == 100) & (data['ap_lo'] == 150), ['ap_hi', 'ap_lo']] = [100, 50]
+    # data.loc[(data['ap_hi'] == 100) & (data['ap_lo'] == 160), ['ap_hi', 'ap_lo']] = [100, 60]
+    # data.loc[(data['ap_hi'] == 110) & (data['ap_lo'] == 170), ['ap_hi', 'ap_lo']] = [100, 60]
+    data.loc[(data['ap_hi'] == 20) & (data['ap_lo'] == 170), ['ap_hi', 'ap_lo']] = [120, 70]
+
+    if more_clean:
+        idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] > 100) & (data['ap_lo'] > 140) & (
+            data['ap_hi'] <= 250) & (data['ap_lo'] < 250)
+        data.loc[idx, 'ap_lo'] %= 100
+
+        idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] > 50) & (data['ap_lo'] > 25) & (
+            data['ap_hi'] <= 250) & (data['ap_lo'] < 250)
+        data.loc[idx, ['ap_hi', 'ap_lo']] = data.loc[idx, ['ap_lo', 'ap_hi']].values
 
     # weight/height correction
     idx = (data['height'] < 130) & (data['weight'] > 150)
@@ -252,63 +309,115 @@ def clean_data(data, light_clean=False, more_clean=False):
         # data.loc[(data['weight'] < 30) & (data['weight'] >= 20), "weight"] += 100
 
     # preasure correction
-    data.loc[(data["ap_hi"] < 20) & (data["ap_hi"] > 10), "ap_hi"] *= 10
-    data.loc[(data["ap_lo"] < 15) & (data["ap_lo"] > 2), "ap_lo"] *= 10
-
+    data.loc[data['ap_hi'] == 11500, 'ap_hi'] = 150
     idx = data['ap_hi'] > 10000
     data.loc[idx, 'ap_hi'] = 10 * (data.loc[idx, 'ap_hi'] // 1000)
     data.loc[data['ap_lo'] >= 10000, 'ap_lo'] //= 100
 
     data.loc[data['ap_lo'] == 1000, 'ap_lo'] = 100
     data.loc[data['ap_lo'] == 1200, 'ap_lo'] = 120
-    data.loc[data['ap_lo'] == 1001, 'ap_lo'] = 100
-    data.loc[data['ap_lo'] == 1120, 'ap_lo'] = 120
-    data.loc[data['ap_lo'] == 1110, 'ap_lo'] = 110
-
     idx = (data['ap_lo'] == 1100) & (data['ap_hi'] < 100)
     data.loc[idx, 'ap_lo'] = data.loc[idx, 'ap_hi']
     data.loc[idx, 'ap_hi'] = 110
 
     data.loc[data['ap_lo'] == 1100, 'ap_lo'] = 100  # not sure...
-
-    # ...
-    idx = (data['ap_hi'] - data['ap_lo'] < -10) & (data['ap_lo'] < 190) & (data['ap_hi'] > 30) & (data['ap_hi'] <= 100)
-    data.loc[idx, ['ap_hi', 'ap_lo']] = data.loc[idx, ['ap_lo', 'ap_hi']].values
-
-    data.loc[data['ap_hi'] == 20, 'ap_hi'] = 120
-
-    data.loc[data['ap_lo'].isin([800, 8044, 802, 8000, 8099, 8079, 809,
-                                 801, 810, 8200, 820, 880, 808, 8022,
-                                 ]), 'ap_lo'] = 80
-
+    data.loc[data['ap_lo'] == 1110, 'ap_lo'] = 110
+    data.loc[data['ap_lo'] == 1001, 'ap_lo'] = 100
+    data.loc[data['ap_lo'] == 1120, 'ap_lo'] = 120
     data.loc[data['ap_lo'] == 1900, 'ap_lo'] = 90
-
     data.loc[data['ap_lo'] == 1130, 'ap_lo'] = 130
     data.loc[data['ap_lo'] == 1300, 'ap_lo'] = 130
-
     data.loc[data['ap_lo'] == 1140, 'ap_lo'] = 140
     data.loc[data['ap_lo'] == 1400, 'ap_lo'] = 140
+
+    idx = (data['ap_lo'] > 1000) & (data['ap_hi'] == 1)
+    data.loc[idx, 'ap_hi'] = 100 + data.loc[idx, 'ap_lo'] // 100
+    data.loc[idx, 'ap_lo'] %= 100
+
+    idx = (data['ap_lo'] > 250) & (data['ap_hi'] < 100)
+    data.loc[idx, 'ap_hi'] = data.loc[idx, 'ap_hi'] * 10 + data.loc[idx, 'ap_lo'] // 100
+    data.loc[idx, 'ap_lo'] %= 100
+
+    data.loc[data['ap_lo'].isin([800, 8044, 802, 8000, 8099, 8079, 809,
+                                 801, 810, 8200, 820, 880, 808, 8022, 8100, 8077, 8500, 850
+                                 ]), 'ap_lo'] = 80
+
+    data.loc[data['ap_lo'].isin([9100, 9800, 9011]), 'ap_lo'] = 90
+
+    data.loc[data['ap_lo'].isin([4700, 7099, 7100]), 'ap_lo'] = 70
+
+    data.loc[data['ap_lo'] == 5700, 'ap_lo'] = 70 #57
+    data.loc[data['ap_lo'] == 6800, 'ap_lo'] = 68
+    data.loc[data['ap_lo'] == 4100, 'ap_lo'] = 100
 
     data.loc[data['ap_lo'] > 1000, 'ap_lo'] //= 10
     data.loc[data['ap_lo'] > 890, 'ap_lo'] = 90
     data.loc[data['ap_lo'] > 790, 'ap_lo'] = 80
     data.loc[data['ap_lo'] > 690, 'ap_lo'] = 70
+    data.loc[data['ap_lo'] > 590, 'ap_lo'] = 60
+
+    data.loc[data['ap_hi'] == 1420, 'ap_hi'] = 120
+    data.loc[(data['ap_hi'] > 250) & (data['ap_hi'].astype('str').apply(lambda x: '4' in x)), 'ap_hi'] = 140
+
+    data.loc[data['ap_hi'].isin([1202, 1205, ]), 'ap_hi'] = 120
+    data.loc[data['ap_hi'].isin([1500, 1502, ]), 'ap_hi'] = 150
+    data.loc[data['ap_hi'].isin([1620, 1608, ]), 'ap_hi'] = 160
+    data.loc[data['ap_hi'].isin([1300, 1130, ]), 'ap_hi'] = 130
+    data.loc[data['ap_hi'] == 2000, 'ap_hi'] = 200
+    data.loc[data['ap_hi'] == 1110, 'ap_hi'] = 110
+    data.loc[data['ap_hi'] == 701, 'ap_hi'] = 170
+    data.loc[(data['ap_hi'] >= 900) & (data['ap_lo'] > 50), 'ap_hi'] = 90
+    data.loc[data['ap_hi'] == 906, ['ap_hi', 'ap_lo']] = [90, 60]
+    data.loc[data['ap_hi'] == 907, ['ap_hi', 'ap_lo']] = [90, 70]
+    data.loc[data['ap_hi'] == 806, ['ap_hi', 'ap_lo']] = [80, 60]
+    data.loc[data['ap_hi'] == 309, ['ap_hi', 'ap_lo']] = [130, 90]
+    data.loc[data['ap_hi'] == 509, ['ap_hi', 'ap_lo']] = [150, 90]
+
+    data.loc[(data['ap_hi'] == 138) & (data['ap_lo'] == 0), ['ap_hi', 'ap_lo']] = [130, 80]
+    data.loc[(data['ap_hi'] == 149) & (data['ap_lo'] == 0), ['ap_hi', 'ap_lo']] = [140, 90]
+    data.loc[(data['ap_hi'] == 148) & (data['ap_lo'] == 0), ['ap_hi', 'ap_lo']] = [140, 80]
+    data.loc[(data['ap_hi'] == 108) & (data['ap_lo'] == 0), ['ap_hi', 'ap_lo']] = [100, 80]
+    data.loc[(data['ap_hi'] == 117) & (data['ap_lo'] == 0), ['ap_hi', 'ap_lo']] = [110, 70]
+    data.loc[(data['ap_hi'] == 118) & (data['ap_lo'] == 0), ['ap_hi', 'ap_lo']] = [110, 80]
+
+    data.loc[(data['ap_hi'] <= 20) & (data['ap_hi'] > 10) & (data['ap_hi'] * 10 > data['ap_lo']), 'ap_hi'] *= 10
+    data.loc[(data['ap_lo'] <= 50) & (data['ap_lo'] > 2) & (data['ap_lo'] * 10 < data['ap_hi']), 'ap_lo'] *= 10
+
+    # data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 80), 'ap_hi'] = 120
+    # data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 70), 'ap_hi'] = 110
+    # data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 60), 'ap_hi'] = 100
+    data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 160), ['ap_hi', 'ap_lo']] = [110, 60]
+    data.loc[(data['ap_hi'] == 24) & (data['ap_lo'] == 20), ['ap_hi', 'ap_lo']] = [240, 120]
+    # data.loc[(data['ap_hi'] == 70) & (data['ap_lo'] == 15), ['ap_hi', 'ap_lo']] = [150, 70]
+    data.loc[data['ap_lo'] == 19, 'ap_lo'] = 90
+    data.loc[data['ap_lo'] == 15, 'ap_lo'] = 50
+    if True: return data
 
     data.loc[data['ap_lo'] == 585, 'ap_lo'] = 85
     data.loc[data['ap_lo'] == 602, 'ap_lo'] = 60
     data.loc[data['ap_lo'] == 570, 'ap_lo'] = 70
 
+    # data.loc[(data["ap_hi"] < 20) & (data["ap_hi"] > 10) & (data['ap_lo'] < (data['ap_hi'] * 10)), "ap_hi"] *= 10
+    # data.loc[(data["ap_lo"] < 15) & (data["ap_lo"] > 2), "ap_lo"] *= 10
+
+
+
+    # ...
+    # idx = (data['ap_hi'] - data['ap_lo'] < -10) & (data['ap_lo'] < 190) & (data['ap_hi'] > 30) & (data['ap_hi'] <= 100)
+    # data.loc[idx, ['ap_hi', 'ap_lo']] = data.loc[idx, ['ap_lo', 'ap_hi']].values
+
+    data.loc[data['ap_hi'] == 20, 'ap_hi'] = 120
+
     idx = data['ap_hi'] // 100 == 11
     data.loc[idx, 'ap_hi'] %= 1000
     data.loc[data['ap_hi'] >= 1000, 'ap_hi'] //= 10
 
-    #     data.loc[data['ap_hi'] == 138, ['ap_hi', 'ap_lo']] = [130, 80]
-    #     data.loc[data['ap_hi'] == 149, ['ap_hi', 'ap_lo']] = [140, 90]
-    #     data.loc[data['ap_hi'] == 148, ['ap_hi', 'ap_lo']] = [140, 80]
-    #     data.loc[data['ap_hi'] == 108, ['ap_hi', 'ap_lo']] = [100, 80]
-    #     data.loc[data['ap_hi'] == 117, ['ap_hi', 'ap_lo']] = [110, 70]
-    #     data.loc[data['ap_hi'] == 118, ['ap_hi', 'ap_lo']] = [110, 80]
-
+    data.loc[data['ap_hi'] == 138, ['ap_hi', 'ap_lo']] = [130, 80]
+    data.loc[data['ap_hi'] == 149, ['ap_hi', 'ap_lo']] = [140, 90]
+    data.loc[data['ap_hi'] == 148, ['ap_hi', 'ap_lo']] = [140, 80]
+    data.loc[data['ap_hi'] == 108, ['ap_hi', 'ap_lo']] = [100, 80]
+    data.loc[data['ap_hi'] == 117, ['ap_hi', 'ap_lo']] = [110, 70]
+    data.loc[data['ap_hi'] == 118, ['ap_hi', 'ap_lo']] = [110, 80]
     #     data.loc[data["ap_hi"] > 1000, "ap_hi"] //= 10
     #     idx = (data['ap_hi'] - data['ap_lo'] < -10) & (data['ap_lo'] < 250) & (data['ap_hi'] > 30)
     #     data.loc[idx, ['ap_lo']]=data.loc[idx, ['ap_lo']]%100
@@ -377,7 +486,7 @@ def clean_data(data, light_clean=False, more_clean=False):
         (2654, ['ap_hi', 'ap_lo'], [90, 60]),
         (6822, ['ap_hi', 'ap_lo'], [90, 60]),
         (13616, ['ap_hi', 'ap_lo'], [170, 110]),
-        (57646, ['ap_hi', 'ap_lo'], [130, 80]),
+        (57646, ['ap_hi', 'ap_lo'], [130, 90]),
         (58349, ['ap_hi', 'ap_lo'], [140, 80]),
         (59301, ['ap_hi', 'ap_lo'], [80, 60]),
         (77010, ['ap_hi', 'ap_lo'], [90, 60]),
@@ -391,47 +500,72 @@ def clean_data(data, light_clean=False, more_clean=False):
         # 57993    120    19    -
 
         (50210, ['ap_hi', 'ap_lo'], [130, 100]),
-        (81260, ['ap_hi', 'ap_lo'], [70, 50]),
+        (81260, ['ap_hi', 'ap_lo'], [170, 80]),
         (57993, ['ap_hi', 'ap_lo'], [120, 90]),
 
         # id    ap_hi    ap_lo    cardio
         # 7657    7    80    0
         # 94673    10    160    1
-        # 42755    1    30    10
+        # # 42755    1    30    10
         (7657, ['ap_hi', 'ap_lo'], [120, 80]),
-        (94673, ['ap_hi', 'ap_lo'], [110, 60]),
+        (94673, ['ap_hi', 'ap_lo'], [160, 100]),
         (42755, ['ap_hi', 'ap_lo'], [120, 80]),
 
         # 75399    24    20    1
         (75399, ['ap_hi', 'ap_lo'], [240, 120]),
+        #
+        # (50799, ['ap_hi', 'ap_lo'], [120, 80]),
+        # (56048, ['ap_hi', 'ap_lo'], [120, 80]),
+        # (62937, ['ap_hi', 'ap_lo'], [120, 80]),
+        # (7465, ['ap_hi', 'ap_lo'], [120, 80]),
+        # (18180, ['ap_hi', 'ap_lo'], [120, 80]),
+        # (43735, ['ap_hi', 'ap_lo'], [120, 80]),
+        #
+        (49321, ['ap_hi', 'ap_lo'], [140, 90]),
+        # (94673, ['ap_hi', 'ap_lo'], [160, 80]),
+
+        (94426, ['ap_hi', 'ap_lo'], [160, 120]),
+
     ]
     for idx, cols, update in manual_update:
         data.loc[data['id'] == idx, cols] = update
 
-        #################
-
-    #     data.loc[(data['ap_lo']==30), 'ap_lo'] = 80
-
+    # #################
+    #
+    # #     data.loc[(data['ap_lo']==30), 'ap_lo'] = 80
+    #
     data.loc[(data['ap_hi'] == 906), ['ap_hi', 'ap_lo']] = [90, 60]
     data.loc[(data['ap_hi'] == 907), ['ap_hi', 'ap_lo']] = [90, 70]
-    #     data.loc[(data['ap_hi']==806), ['ap_hi', 'ap_lo']] = [80, 60]
-    #     data.loc[(data['ap_hi']==309), ['ap_hi', 'ap_lo']] = [130, 90]
-
-    idx = (data['ap_lo'] == 0) & (data['ap_hi'] % 10 > 2)
-    data.loc[idx, 'ap_lo'] = (data.loc[idx, 'ap_hi'] % 10) * 10
-    data.loc[idx, 'ap_hi'] = (data.loc[idx, 'ap_hi'] // 10) * 10
+    # #     data.loc[(data['ap_hi']==806), ['ap_hi', 'ap_lo']] = [80, 60]
+    # #     data.loc[(data['ap_hi']==309), ['ap_hi', 'ap_lo']] = [130, 90]
+    #
+    # idx = (data['ap_lo'] == 0) & (data['ap_hi'] % 10 > 2)
+    # data.loc[idx, 'ap_lo'] = (data.loc[idx, 'ap_hi'] % 10) * 10
+    # data.loc[idx, 'ap_hi'] = (data.loc[idx, 'ap_hi'] // 10) * 10
+    data.loc[(data['ap_lo'] == 0) & (data['ap_hi'] == 140), 'ap_lo'] = 90
     data.loc[data['ap_lo'] == 0, 'ap_lo'] = 80
 
-    if more_clean:
-        idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] > 50) & (data['ap_lo'] > 120)
-        data.loc[idx, 'ap_lo'] %= 100
-        idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] > 50)
-        data.loc[idx, ['ap_hi', 'ap_lo']] = data.loc[idx, ['ap_lo', 'ap_hi']].values
+    data.loc[(data['ap_hi'] < 50) & (data['ap_lo'] > 25), 'ap_hi'] *= 10
+    data.loc[(data['ap_lo'] < 20) & (data['ap_lo'] > 4) & (data['ap_hi'] > 40), 'ap_lo'] *= 10
 
-        data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 80), 'ap_hi'] = 120
-        data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 70), 'ap_hi'] = 110
-        data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 60), 'ap_hi'] = 100
+    data.loc[(data['ap_lo'] < 20), 'ap_lo'] *= 10
+    data.loc[(data['ap_hi'] < 20), 'ap_hi'] *= 10
 
+    # if more_clean:
+    #     idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] > 50) & (data['ap_lo'] > 120)
+    #     data.loc[idx, 'ap_lo'] %= 100
+    # idx = (data['ap_hi'] <= data['ap_lo']) & (data['ap_hi'] < 100)
+    # data.loc[idx, 'ap_hi'] += 100
+    # data.loc[idx, ['ap_hi', 'ap_lo']] = data.loc[idx, ['ap_lo', 'ap_hi']].values
+
+    # data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 80), 'ap_hi'] = 120
+    # data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 70), 'ap_hi'] = 110
+    # data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 60), 'ap_hi'] = 100
+    #
+    # data.loc[(data['ap_hi'] == 10) & (data['ap_lo'] == 0), ['ap_hi', 'ap_lo']] = [120, 80]
+
+    # data.loc[(data['ap_lo'] == 20), 'ap_lo'] = 70
+    # data.loc[(data['ap_lo'] == 30), 'ap_lo'] = 80
     return data
 
 
